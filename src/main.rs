@@ -9,22 +9,55 @@ use panic_halt as _; // you can put a breakpoint on `rust_begin_unwind` to catch
 
 // use cortex_m::asm;
 use cortex_m_rt::entry;
+
 // use cortex_m::Peripherals;
 use stm32f4xx_hal::{
-    pac::Peripherals, 
+    pac::Peripherals,
+    pac::USART1, 
     gpio::GpioExt, 
     // prelude::_stm32f4xx_hal_timer_SysCounterExt,
-    prelude::*, 
-    rcc::RccExt
+    prelude::*,
+    serial::*,
+    rcc::RccExt,
 };
 
+use core::{
+    fmt::Write,
+    cell::RefCell,
+};
+
+static mut TX: RefCell<Option<Tx<USART1>>> = RefCell::new(None);
+
+fn info(msg: &str) {
+    unsafe {
+        let mut tx = TX.borrow_mut();
+        writeln!(tx.as_mut().unwrap(), "INFO: {}", msg).unwrap();
+    };
+}
 
 #[entry]
 fn main() -> ! {
-    // asm::nop(); // To not have main optimize to abort in release mode, remove when you add code
     let p = Peripherals::take().unwrap();
     let cp = cortex_m::peripheral::Peripherals::take().unwrap();
     
+    let rcc = p.RCC.constrain();
+    let clocks = rcc
+        .cfgr
+        .use_hse(8192.kHz())
+        .sysclk(84.MHz())
+        .pclk1(24.MHz())
+        .i2s_clk(86.MHz())
+        .require_pll48clk()
+        .freeze();
+    let mut delay = cp.SYST.delay(&clocks);
+
+    let gpioa = p.GPIOA.split();
+    let tx_pin = gpioa.pa9.into_push_pull_output();
+    let tx: Tx<USART1> = Serial::tx(p.USART1, tx_pin, 9600.bps(), &clocks).unwrap();
+    unsafe {TX.replace(Some(tx));};
+    //let mut tx = p.USART1.tx(tx_pin, 9600.bps(), &clocks).unwrap();
+
+
     let gpioe = p.GPIOE.split();
     let mut yellow_ledpin = gpioe.pe7.into_push_pull_output();
     let mut green_ledpin = gpioe.pe8.into_push_pull_output();
@@ -34,19 +67,9 @@ fn main() -> ! {
     red_ledpin.set_low();
 
     
-    let rcc = p.RCC.constrain();
-    let clocks = rcc
-        .cfgr
-        .use_hse(16384.kHz())
-        .sysclk(168.MHz())
-        .pclk1(24.MHz())
-        .i2s_clk(86.MHz())
-        .require_pll48clk()
-        .freeze();
-
-    let mut delay = cp.SYST.delay(&clocks);
 
     loop {
+        info("my info");
         yellow_ledpin.set_high();
         delay.delay_ms(30_u32);
         green_ledpin.set_high();
